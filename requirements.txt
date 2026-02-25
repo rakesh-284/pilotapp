@@ -3,3 +3,5 @@ Pillow
 pytesseract
 deep-translator
 gTTS
+sumy
+nltk
