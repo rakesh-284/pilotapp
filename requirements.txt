@@ -1,5 +1,5 @@
-# Python package dependencies
-# Add your required packages here
-# Example:
-# flask==2.0.1
-# requests==2.26.0
+streamlit
+Pillow
+pytesseract
+deep-translator
+gTTS
