@@ -6,6 +6,7 @@ from gtts import gTTS
 import io
 import cv2
 import numpy as np
+import re
 
 # Summarization libraries
 from sumy.parsers.plaintext import PlaintextParser
@@ -13,7 +14,7 @@ from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.lsa import LsaSummarizer
 import nltk
 
-# Download necessary language data for summarizer (cached so it only happens once)
+# Download necessary language data for summarizer
 @st.cache_resource
 def setup_nltk():
     try:
@@ -28,32 +29,46 @@ def setup_nltk():
 setup_nltk()
 
 # ==========================================
-# IMAGE PREPROCESSING FUNCTION (Improves OCR)
+# 1. UPDATED PREPROCESSING (Better for lists)
 # ==========================================
 def preprocess_image(pil_image):
-    # 1. Convert PIL image to OpenCV format (NumPy array)
     img = np.array(pil_image)
     
-    # Handle RGB to BGR conversion (OpenCV uses BGR)
     if len(img.shape) == 3:
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        # 2. Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     else:
         gray = img
 
-    # 3. Scale up the image by 2x (Tesseract works best with ~300 DPI)
+    # Scale up
     gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-    # 4. Apply Adaptive Thresholding (Makes background pure white, text pure black, ignores shadows)
-    processed_img = cv2.adaptiveThreshold(
-        gray, 255, 
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 
-        31, 2
-    )
+    # Slight blur to remove background noise before thresholding
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Otsu's thresholding (Usually handles bullet points and standard documents better)
+    _, processed_img = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     return processed_img
+
+# ==========================================
+# 2. NEW: BULLET POINT CLEANUP FUNCTION
+# ==========================================
+def clean_extracted_text(text):
+    cleaned_lines =[]
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Regex: If a line starts with a non-alphanumeric character (like *, °, >) 
+        # or the letters 'o' / 'O' followed by a space, force it to become a standard bullet dash '- '
+        if re.match(r'^([^a-zA-Z0-9]|o|O)\s', line):
+            line = re.sub(r'^([^a-zA-Z0-9]|o|O)\s', '- ', line, count=1)
+            
+        cleaned_lines.append(line)
+        
+    return "\n".join(cleaned_lines)
 
 
 st.title("Image to Speech App 🎙️")
@@ -74,16 +89,14 @@ if uploaded_file is not None:
     if st.button("1. Extract Text from Image"):
         with st.spinner("Enhancing image and scanning..."):
             
-            # Run the image through our new preprocessing pipeline
             enhanced_image = preprocess_image(image)
             
-            # Pass enhanced image to Tesseract. 
-            # --psm 6 tells Tesseract to assume a single uniform block of text.
-            custom_config = r'--oem 3 --psm 6'
+            # CHANGED to --psm 4 (Assume a single column of text of variable sizes - great for lists)
+            custom_config = r'--oem 3 --psm 4'
             extracted = pytesseract.image_to_string(enhanced_image, config=custom_config)
             
-            # Clean up excessive empty lines that OCR sometimes creates
-            cleaned_text = "\n".join([line for line in extracted.splitlines() if line.strip()])
+            # Run the text through our new bullet-point fixer
+            cleaned_text = clean_extracted_text(extracted)
             
             st.session_state.extracted_text = cleaned_text
 
@@ -92,18 +105,18 @@ if uploaded_file is not None:
         
         st.markdown("### Review & Edit")
         
-        # FEATURE 1: Editable Text Area
+        # Editable Text Area
         edited_text = st.text_area(
             "Fix any typos here before generating audio:", 
             value=st.session_state.extracted_text, 
             height=200
         )
         
-        # FEATURE 2: Word Count
+        # Word Count
         word_count = len(edited_text.split())
         st.caption(f"**Word count:** {word_count} words")
         
-        # FEATURE 3: Summarizer (Only shows if words > 120)
+        # Summarizer
         if word_count > 120:
             st.info("💡 The text is quite long. You can generate a summary to save time.")
             if st.button("Summarize (Keep Important Info)"):
@@ -111,7 +124,6 @@ if uploaded_file is not None:
                     parser = PlaintextParser.from_string(edited_text, Tokenizer("english"))
                     summarizer = LsaSummarizer()
                     
-                    # Extract top 3-4 most important sentences
                     summary_sentences = summarizer(parser.document, sentences_count=3)
                     short_text = " ".join([str(sentence) for sentence in summary_sentences])
                     
