@@ -4,8 +4,6 @@ import pytesseract
 from deep_translator import GoogleTranslator
 from gtts import gTTS
 import io
-import cv2
-import numpy as np
 
 # Summarization libraries
 from sumy.parsers.plaintext import PlaintextParser
@@ -27,47 +25,6 @@ def setup_nltk():
 
 setup_nltk()
 
-# ==========================================
-# IMAGE PREPROCESSING FUNCTIONS
-# ==========================================
-def preprocess_image_for_ocr(image):
-    """
-    Preprocess image to improve OCR accuracy
-    """
-    # Convert PIL image to OpenCV format
-    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-    
-    # 1. UPSCALE: Increase image size for better text detection
-    scale_factor = 2
-    img_cv = cv2.resize(img_cv, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
-    
-    # 2. CONVERT TO GRAYSCALE: Simplifies color information
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    
-    # 3. DENOISE: Remove noise while preserving edges
-    denoised = cv2.fastNlMeansDenoising(gray, h=10)
-    
-    # 4. THRESHOLDING: Convert to black and white for better contrast
-    # Using Otsu's binarization for automatic threshold detection
-    _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # 5. DILATION & EROSION: Enhance text connectivity
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-    processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    
-    return processed
-
-@st.cache_resource
-def extract_text_with_config(image_array):
-    """
-    Extract text using pytesseract with optimized configuration
-    """
-    # Custom Tesseract configuration for better accuracy
-    custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?\'"()-/'
-    
-    text = pytesseract.image_to_string(image_array, config=custom_config)
-    return text
-
 st.title("Image to Speech App 🎙️")
 
 # --- STATE MANAGEMENT ---
@@ -87,15 +44,8 @@ if uploaded_file is not None:
     # ==========================================
     if st.button("1. Extract Text from Image"):
         with st.spinner("Scanning image..."):
-            # Preprocess image for better OCR
-            processed_image = preprocess_image_for_ocr(image)
-            
-            # Show the processed image for debugging
-            with st.expander("📊 Show Processed Image (for debugging)"):
-                st.image(processed_image, caption='Preprocessed Image', use_container_width=True)
-            
-            # Extract text with optimized config
-            st.session_state.extracted_text = extract_text_with_config(processed_image)
+            # Extract text and save it to session state
+            st.session_state.extracted_text = pytesseract.image_to_string(image)
 
     # Only show the rest of the app if text has been extracted
     if st.session_state.extracted_text:
