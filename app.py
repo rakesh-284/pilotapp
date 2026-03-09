@@ -29,7 +29,7 @@ def setup_nltk():
 setup_nltk()
 
 # ==========================================
-# 1. UPDATED PREPROCESSING (Better for lists)
+# 1. IMAGE PREPROCESSING
 # ==========================================
 def preprocess_image(pil_image):
     img = np.array(pil_image)
@@ -46,13 +46,13 @@ def preprocess_image(pil_image):
     # Slight blur to remove background noise before thresholding
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Otsu's thresholding (Usually handles bullet points and standard documents better)
+    # Otsu's thresholding
     _, processed_img = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     return processed_img
 
 # ==========================================
-# 2. NEW: BULLET POINT CLEANUP FUNCTION
+# 2. BULLET POINT CLEANUP
 # ==========================================
 def clean_extracted_text(text):
     cleaned_lines =[]
@@ -61,8 +61,7 @@ def clean_extracted_text(text):
         if not line:
             continue
             
-        # Regex: If a line starts with a non-alphanumeric character (like *, °, >) 
-        # or the letters 'o' / 'O' followed by a space, force it to become a standard bullet dash '- '
+        # Regex: Force bullet point cleanup
         if re.match(r'^([^a-zA-Z0-9]|o|O)\s', line):
             line = re.sub(r'^([^a-zA-Z0-9]|o|O)\s', '- ', line, count=1)
             
@@ -77,11 +76,28 @@ st.title("Image to Speech App 🎙️")
 if "extracted_text" not in st.session_state:
     st.session_state.extracted_text = ""
 
-uploaded_file = st.file_uploader("Upload an image with English text", type=["jpg", "png", "jpeg"])
+# ==========================================
+# NEW: TABS FOR UPLOAD VS CAMERA
+# ==========================================
+tab1, tab2 = st.tabs(["📁 Upload Image", "📸 Take a Photo"])
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption='Uploaded Image', use_container_width=True)
+with tab1:
+    uploaded_file = st.file_uploader("Upload an image with English text", type=["jpg", "png", "jpeg"])
+
+with tab2:
+    camera_photo = st.camera_input("Take a picture of the text")
+
+# Figure out which image source the user provided
+# If they took a photo, use that. Otherwise, use the uploaded file.
+image_data = camera_photo if camera_photo is not None else uploaded_file
+
+if image_data is not None:
+    image = Image.open(image_data)
+    
+    # Hide the default large image display if it's from the camera 
+    # (since the camera widget already shows the preview)
+    if camera_photo is None:
+        st.image(image, caption='Uploaded Image', use_container_width=True)
     
     # ==========================================
     # STEP 1: EXTRACT TEXT
@@ -91,11 +107,11 @@ if uploaded_file is not None:
             
             enhanced_image = preprocess_image(image)
             
-            # CHANGED to --psm 4 (Assume a single column of text of variable sizes - great for lists)
+            # --psm 4 (Assume a single column of text of variable sizes - great for lists)
             custom_config = r'--oem 3 --psm 4'
             extracted = pytesseract.image_to_string(enhanced_image, config=custom_config)
             
-            # Run the text through our new bullet-point fixer
+            # Run the text through our bullet-point fixer
             cleaned_text = clean_extracted_text(extracted)
             
             st.session_state.extracted_text = cleaned_text
